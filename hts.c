@@ -122,13 +122,45 @@ static int is_binary(unsigned char *s, size_t n)
     return 0;
 }
 
-htsFile *hts_open(const char *fn, const char *mode)
+int hts_detect_format(hFILE *hfile, htsFormat *buf)
 {
-    htsFile *fp = NULL;
-    hFILE *hfile = hopen(fn, mode);
-    if (hfile == NULL) goto error;
+    unsigned char s[18];
 
-    fp = (htsFile*)calloc(1, sizeof(htsFile));
+    buf->category = unknown_category;
+    buf->format = unknown_format;
+
+    if (hpeek(hfile, s, 6) == 6 && memcmp(s, "CRAM", 4) == 0 &&
+        s[4] >= 1 && s[4] <= 2 && s[5] <= 1) {
+        buf->category = sequence;
+        buf->format = cram;
+        buf->binary = buf->compressed = 1;
+        buf->bgzf = 0;
+        return 1;
+    }
+    else if (hpeek(hfile, s, 18) == 18 && s[0] == 0x1f && s[1] == 0x8b &&
+             (s[3] & 4) && memcmp(&s[12], "BC\2\0", 4) == 0) {
+        // The stream is BGZF-compressed.  Decompress a few bytes to see
+        // whether it's in a binary format (e.g., BAM or BCF, starting
+        // with four bytes of magic including a control character) or is
+        // a bgzipped SAM or VCF text file.
+        // FIXME etc
+    }
+    else if (hpeek(hfile, s, 2) == 2 && s[0] == 0x1f && s[1] == 0x8b) {
+        // Plain GZIP header... so a gzipped text file.
+        // FIXME etc
+    }
+    else if (hpeek(hfile, s, 4) == 4 && is_binary(s, 4)) {
+        // Binary format, but in a raw non-compressed form.
+        // FIXME etc
+    }
+    else {
+        // FIXME etc
+    }
+}
+
+htsFile *hts_hopen(struct hFILE *hfile, const char *fn, const char *mode)
+{
+    htsFile *fp = (htsFile*)calloc(1, sizeof(htsFile));
     if (fp == NULL) goto error;
 
     fp->fn = strdup(fn);
@@ -205,14 +237,32 @@ error:
     if (hts_verbose >= 2)
         fprintf(stderr, "[E::%s] fail to open file '%s'\n", __func__, fn);
 
-    if (hfile)
-        hclose_abruptly(hfile);
-
     if (fp) {
         free(fp->fn);
         free(fp->fn_aux);
         free(fp);
     }
+    return NULL;
+}
+
+htsFile *hts_open(const char *fn, const char *mode)
+{
+    htsFile *fp = NULL;
+    hFILE *hfile = hopen(fn, mode);
+    if (hfile == NULL) goto error;
+
+    fp = hts_hopen(hfile, fn, mode);
+    if (fp == NULL) goto error;
+
+    return fp;
+
+error:
+    if (hts_verbose >= 2)
+        fprintf(stderr, "[E::%s] fail to open file '%s'\n", __func__, fn);
+
+    if (hfile)
+        hclose_abruptly(hfile);
+
     return NULL;
 }
 

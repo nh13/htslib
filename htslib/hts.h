@@ -130,6 +130,8 @@ const char *hts_version(void);
 */
 htsFile *hts_open(const char *fn, const char *mode);
 
+htsFile *hts_hopen(struct hFILE *fp, const char *fn, const char *mode);
+
 /*!
   @abstract  Close a file handle, flushing buffered data for output streams
   @param fp  The file handle to be closed
@@ -166,6 +168,33 @@ int hts_set_threads(htsFile *fp, int n);
       used to provide a reference list if the htsFile contains no @SQ headers.
 */
 int hts_set_fai_filename(htsFile *fp, const char *fn_aux);
+
+typedef enum htsFormatCategory {
+    unknown_category,
+    sequence,  // Sequence data -- SAM, BAM, CRAM, etc
+    variant,   // Variant calling data -- VCF, BCF, etc
+    interval   // Coordinate intervals -- BED, etc
+} htsFormatCategory;
+
+typedef enum htsExactFormat {
+    unknown_format,
+    sam, bam, cram,
+    vcf, bcf
+} htsExactFormat;
+
+typedef struct htsFormat {
+    const char *description;
+    htsFormatCategory category;
+    htsExactFormat format;
+    int binary:1, compressed:1, bgzf:1;
+    char mode[12]; // e.g. "wc"
+} htsFormat;
+
+// Determines by peeking at  fp  (which must be positioned at start of file)
+int hts_detect_format(struct hFILE *fp, htsFormat *buf);
+
+// Determines based on filename extension only (as per sam_open_mode())
+int hts_implied_format(const char *filename, const char *format, htsFormat *buf);
 
 #ifdef __cplusplus
 }
